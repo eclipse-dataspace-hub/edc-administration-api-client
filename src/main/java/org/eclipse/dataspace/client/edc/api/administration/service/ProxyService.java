@@ -1,0 +1,133 @@
+/*
+ *  Copyright (c) 2026 Fraunhofer-Gesellschaft zur Förderung der angewandten Forschung e.V.
+ *
+ *  This program and the accompanying materials are made available under the
+ *  terms of the Apache License, Version 2.0 which is available at
+ *  https://www.apache.org/licenses/LICENSE-2.0
+ *
+ *  SPDX-License-Identifier: Apache-2.0
+ *
+ *  Contributors:
+ *       Fraunhofer-Gesellschaft zur Förderung der angewandten Forschung e.V. - initial API and implementation
+ *
+ */
+
+package org.eclipse.dataspace.client.edc.api.administration.service;
+
+import okhttp3.MediaType;
+import okhttp3.OkHttpClient;
+import okhttp3.Request;
+import okhttp3.RequestBody;
+import org.eclipse.dataspace.client.edc.api.administration.domain.ProxyRequest;
+import org.eclipse.dataspace.client.edc.api.administration.domain.ProxyResponse;
+import org.eclipse.dataspace.client.edc.api.administration.exception.ProxyException;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.stereotype.Service;
+import tools.jackson.databind.ObjectMapper;
+
+import java.io.IOException;
+
+@Service
+public class ProxyService {
+
+    private final Logger logger = LoggerFactory.getLogger(ProxyService.class);
+
+    private final String controlPlaneBaseUrl;
+    private final String identityHubBaseUrl;
+    private final String issuerServiceBaseUrl;
+    private final String defaultApiBaseUrl;
+    private final String sigletBaseUrl;
+
+    private final ObjectMapper objectMapper;
+    private final OkHttpClient httpClient;
+
+    public ProxyService(@Value("${edc.url.controlplane}") String controlPlaneBaseUrl,
+                        @Value("${edc.url.identityhub}") String identityHubBaseUrl,
+                        @Value("${edc.url.issuerservice}") String issuerServiceBaseUrl,
+                        @Value("${edc.url.defaultapi}") String defaultApiBaseUrl,
+                        @Value("${edc.url.siglet}") String sigletBaseUrl,
+                        ObjectMapper objectMapper, OkHttpClient httpClient) {
+        this.controlPlaneBaseUrl = controlPlaneBaseUrl;
+        this.identityHubBaseUrl = identityHubBaseUrl;
+        this.issuerServiceBaseUrl = issuerServiceBaseUrl;
+        this.defaultApiBaseUrl = defaultApiBaseUrl;
+        this.sigletBaseUrl = sigletBaseUrl;
+        this.objectMapper = objectMapper;
+        this.httpClient = httpClient;
+    }
+
+    public ProxyResponse proxyControlPlaneRequest(ProxyRequest proxyRequest) throws ProxyException {
+        return proxyRequest(proxyRequest, controlPlaneBaseUrl);
+    }
+
+    public ProxyResponse proxyIdentityHubRequest(ProxyRequest proxyRequest) throws ProxyException {
+        return proxyRequest(proxyRequest, identityHubBaseUrl);
+    }
+
+    public ProxyResponse proxyIssuerServiceRequest(ProxyRequest proxyRequest) throws ProxyException {
+        return proxyRequest(proxyRequest, issuerServiceBaseUrl);
+    }
+
+    public ProxyResponse proxyDefaultApiRequest(ProxyRequest proxyRequest) throws ProxyException {
+        return proxyRequest(proxyRequest, defaultApiBaseUrl);
+    }
+
+    public ProxyResponse proxySigletRequest(ProxyRequest proxyRequest) throws ProxyException {
+        return proxyRequest(proxyRequest, sigletBaseUrl);
+    }
+
+    private ProxyResponse proxyRequest(ProxyRequest proxyRequest, String baseUrl) throws ProxyException {
+        var requestBuilder = new Request.Builder()
+                .url(requestUrl(baseUrl, proxyRequest.path(), proxyRequest.queryParams()));
+
+        proxyRequest.headers().forEach(requestBuilder::addHeader);
+        requestBuilder.addHeader("Authorization", "Bearer " + proxyRequest.token());
+
+        if (proxyRequest.requestBody() != null) {
+            var body = RequestBody.create(objectMapper.writeValueAsString(proxyRequest.requestBody()), MediaType.get(proxyRequest.contentType()));
+            requestBuilder.method(proxyRequest.httpMethod(), body);
+        } else {
+            requestBuilder.method(proxyRequest.httpMethod(), null);
+        }
+
+        try(var response = httpClient.newCall(requestBuilder.build()).execute()) {
+            var responseBuilder = new ProxyResponse.Builder()
+                    .statusCode(response.code());
+
+            response.headers().forEach(header -> responseBuilder.header(header.getFirst(), header.getSecond()));
+
+            if (response.body() != null) {
+                var responseBody = response.body().string();
+                if (response.isSuccessful()) {
+                    if (!responseBody.isBlank()) {
+                        responseBuilder.responseBody(objectMapper.readValue(responseBody, Object.class));
+                    }
+                } else {
+                    responseBuilder.responseBody(responseBody);
+                }
+            }
+
+            return responseBuilder.build();
+        } catch (IOException e) {
+            var message = "Failed to proxy request to backend service.";
+            logger.error(message, e);
+            throw new ProxyException(message, e);
+        }
+    }
+
+    private String requestUrl(String baseUrl, String path, String queryParams) {
+        if (!path.startsWith("/")) {
+            path = "/" + path;
+        }
+
+        if (queryParams != null && !queryParams.startsWith("?")) {
+            queryParams = "?" + queryParams;
+        } else if (queryParams == null) {
+            queryParams = "";
+        }
+
+        return baseUrl + path + queryParams;
+    }
+}
