@@ -1,0 +1,38 @@
+edc:
+  url:
+    controlplane: http://jad.localhost/api/management
+    identityhub: http://jad.localhost/api/identity
+    issuerservice: http://jad.localhost/api/issuer/admin
+    defaultapi: http://controlplane.edc-v.svc.cluster.local:8080/api
+    siglet: http://siglet.edc-v.svc.cluster.local:8080
+tokenexchange:
+  jwtlet:
+    url: http://jwtlet.edc-v.svc.cluster.local:8080/token
+  request:
+    parameters:
+      grant-type: grant_type
+      subject-token: subject_token
+      subject-token-type: subject_token_type
+      resource: resource
+      scope: scope
+      audience: audience
+    values:
+      grant-type-token-exchange: urn:ietf:params:oauth:grant-type:token-exchange
+      subject-token-type-jwt: urn:ietf:params:oauth:token-type:jwt
+      scope: "read write management-api:admin siglet-token"
+      audience: edcv
+  participant-context-id-claim: participant_context_id
+  serviceaccount:
+    token:
+      mountpath: /var/run/secrets/kubernetes.io/serviceaccount/token
+spring:
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          issuer-uri: http://keycloak.jad.localhost/realms/jad-dev
+          jwk-set-uri: http://keycloak.edc-v.svc.cluster.local/realms/jad-dev/protocol/openid-connect/certs
+logging:
+  level:
+    org.springframework: DEBUG
+    okhttp3: INFO
